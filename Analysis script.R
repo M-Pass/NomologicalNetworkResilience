@@ -8,6 +8,7 @@ library(qgraph)
 library(pcalg)
 library(graph)
 library(Rgraphviz)
+library(igraph)
 set.seed(108)
 
 #### Loading and processing the data ####
@@ -38,35 +39,140 @@ plot(results, layout="spring", groups=list(CERQ=c(1:9), CISS=c(10:13), DD=c(14:1
      mar=c(1,1,1,1), vsize=7, vsize2=3.5, shape="ellipse", label.cex=1.7)
 
 # Partial correlations
-results <- estimateNetwork(data, default="pcor")
-plot(results, layout="spring", groups=list(CERQ=c(1:9), CISS=c(10:13), DD=c(14:16), RSA=c(17:22), SREIS=c(23:27), NVQ=c(28), SIMP=c(29:33), SOCS=c(34:35), `Socio-biogr.`=c(36:38)), palette="pastel", legend=TRUE, legend.cex=.8, GLratio=3, 
+resultspartial <- estimateNetwork(data, default="pcor")
+plot(resultspartial, layout="spring", groups=list(CERQ=c(1:9), CISS=c(10:13), DD=c(14:16), RSA=c(17:22), SREIS=c(23:27), NVQ=c(28), SIMP=c(29:33), SOCS=c(34:35), `Socio-biogr.`=c(36:38)), palette="pastel", legend=TRUE, legend.cex=.8, GLratio=3, 
      mar=c(1,1,1,1), vsize=7, vsize2=3.5, shape="ellipse", label.cex=1.7)
 
 #### LASSO-regularized network ####
 
-results <- estimateNetwork(data, default="EBICglasso", corMethod = "cor_auto")
+resultslasso <- estimateNetwork(data, default="EBICglasso", corMethod = "cor_auto")
 
-# removal of non-significant correlations
+# Modified centrality plot function to make the labels show properly
+centralityPlotMod <- function (..., labels, scale = c("z-scores", "raw", 
+                                                      "raw0", "relative"), include = c("Degree", 
+                                                                                       "Strength", "OutDegree", "InDegree", "OutStrength", 
+                                                                                       "InStrength"), theme_bw = TRUE, print = TRUE, verbose = TRUE, 
+                               standardized, relative, weighted = TRUE, signed = TRUE, orderBy = "default", 
+                               decreasing = FALSE) 
+{
+  if (any(include == "all") | any(include == "All")) {
+    include <- c("Degree", "Strength", "OutDegree", 
+                 "InDegree", "OutStrength", "InStrength", 
+                 "Closeness", "Betweenness", "ExpectedInfluence", 
+                 "OutExpectedInfluence", "InExpectedInfluence")
+  }
+  scale <- match.arg(scale)
+  if (!missing(standardized)) {
+    warning("'standardized' argument is deprecated and will be removed.")
+  }
+  else {
+    standardized <- scale == "z-scores"
+  }
+  if (!missing(relative)) {
+    warning("'relative' argument is deprecated and will be removed.")
+  }
+  else {
+    relative <- scale == "relative"
+  }
+  if (scale == "z-scores") {
+    if (verbose) 
+      message("Note: z-scores are shown on x-axis rather than raw centrality indices.")
+  }
+  if (scale == "relative") {
+    if (verbose) 
+      message("Note: relative centrality indices are shown on x-axis rather than raw centrality indices.")
+  }
+  measure <- NULL
+  value <- NULL
+  node <- NULL
+  type <- NULL
+  Long <- centralityTable(..., standardized = standardized, 
+                          labels = labels, relative = relative, weighted = weighted, 
+                          signed = signed)
+  Long <- subset(Long, measure %in% include)
+  Long$measure <- factor(Long$measure, levels = include)
+  if (orderBy == "default") {
+    nodeLevels <- unique(as.character(Long$node))
+  }
+  else {
+    nodeLevels <- names(sort(tapply(Long$value[Long$measure == 
+                                                 orderBy], Long$node[Long$measure == orderBy], mean), 
+                             decreasing = decreasing))
+  }
+  Long$node <- factor(as.character(Long$node), levels = nodeLevels)
+  Long <- Long[gtools::mixedorder(Long$node), ]
+  if (length(unique(Long$type)) > 1) {
+    g <- ggplot(Long, aes(x = value, y = node, group = type, 
+                          colour = type))
+  }
+  else {
+    g <- ggplot(Long, aes(x = value, y = node, group = type))
+  }
+  g <- g + geom_path() + xlab("") + ylab("") + 
+    geom_point()
+  if (length(unique(Long$graph)) > 1) {
+    g <- g + facet_grid(graph ~ measure, scales = "free")
+  }
+  else {
+    g <- g + facet_grid(~measure, scales = "free")
+  }
+  if (theme_bw) {
+    g <- g + theme_bw()
+  }
+  if (scale == "raw0") {
+    g <- g + xlim(0, NA)
+  }
+  if (print) {
+    print(g)
+    invisible(g)
+  }
+  else {
+    return(g)
+  }
+}
 
-matrix <- results$results$optwi
-rownames(matrix) <- colnames(data)
-colnames(matrix) <- colnames(data)
-diag(matrix) <- 1
-results$results$optnet[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
-results$results$optwi[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
-results$graph[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
-
-plot(results, layout="spring", groups=list(CERQ=c(1:9), CISS=c(10:13), DD=c(14:16), RSA=c(17:22), SREIS=c(23:27), NVQ=c(28), SIMP=c(29:33), SOCS=c(34:35), `Socio-biogr.`=c(36:38)), palette="pastel", legend=TRUE, legend.cex=.8, GLratio=3, 
-     mar=c(1,1,1,1), vsize=7, vsize2=3.5, shape="ellipse", label.cex=1.7)
-
-centralityPlotMod(results, include=c("Strength", "Betweenness", "ExpectedInfluence"), labels=c("CERQ Self blame", "CERQ Acceptance", "CERQ Rumination", "CERQ Positive refocusing", "Refocus on planning", 
+centralityPlotMod(resultslasso, include=c("Strength", "Betweenness", "ExpectedInfluence"), labels=c("CERQ Self blame", "CERQ Acceptance", "CERQ Rumination", "CERQ Positive refocusing", "Refocus on planning", 
                   "CERQ Positive reappraisal", "CERQ Putting into perspective", "CERQ Catastrophizing", "CERQ Other blame", "CISS Task oriented", 
                   "CISS Emotion oriented", "CISS Treat oneself oriented", "CISS Contact friend oriented", "DD Machiavellianism", "DD Psychopathy", "DD Narcissism", 
                   "RSA Perception of self", "RSA Perception of future", "RSA Structured style", "RSA Social competence", 
                   "RSA Family cohesion", "RSA Social resources", "SREIS Perceiving emotion", "SREIS Use of emotion", "SREIS Understanding emotion", "SREIS Managing emotion", 
                   "SREIS Social management", "NVQ Covert narcissism", "SIMP Extraversion", "SIMP Agreeableness", "SIMP Conscientiousness", "SIMP Emotional stability", "SIMP Openness", 
                   "SOCS Cognitive", "SOCS Motivational", "Gender (male)", "Years of scholarization", "Age"))
+set.seed(108)
 
+# Community structure (clustering of nodes)
+
+groups <- spinglass.community(as.igraph(qgraph(resultslasso$graph)))
+
+qgraph(resultslasso$graph, layout="spring", sampleSize = nrow(data),groups=factor(groups$membership), 
+       vsize=6, cut=0, maximum=.45, border.width=1.5, labels=c("CERQ Self blame", "CERQ Acceptance", "CERQ Rumination", "CERQ Positive refocusing", "Refocus on planning", 
+                                                               "CERQ Positive reappraisal", "CERQ Putting into perspective", "CERQ Catastrophizing", "CERQ Other blame", "CISS Task oriented", 
+                                                               "CISS Emotion oriented", "CISS Treat oneself oriented", "CISS Contact friend oriented", "DD Machiavellianism", "DD Psychopathy", "DD Narcissism", 
+                                                               "RSA Perception of self", "RSA Perception of future", "RSA Structured style", "RSA Social competence", 
+                                                               "RSA Family cohesion", "RSA Social resources", "SREIS Perceiving emotion", "SREIS Use of emotion", "SREIS Understanding emotion", "SREIS Managing emotion", 
+                                                               "SREIS Social management", "NVQ Covert narcissism", "SIMP Extraversion", "SIMP Agreeableness", "SIMP Conscientiousness", "SIMP Emotional stability", "SIMP Openness", 
+                                                               "SOCS Cognitive", "SOCS Motivational", "Gender (male)", "Years of scholarization", "Age"), 
+       label.cex=3)
+#, color=c("yellow", "red", "blue", "green", "purple", "orange"))
+
+# removal of non-significant correlations
+
+matrix <- resultslasso$results$optwi
+rownames(matrix) <- colnames(data)
+colnames(matrix) <- colnames(data)
+diag(matrix) <- 1
+resultslasso$results$optnet[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
+resultslasso$results$optwi[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
+resultslasso$graph[psych::corr.p(r=matrix, n=nrow(data), adj="none")$p > .05] <- 0
+
+plot(resultslasso, layout="spring", groups=list(CERQ=c(1:9), CISS=c(10:13), DD=c(14:16), RSA=c(17:22), SREIS=c(23:27), NVQ=c(28), SIMP=c(29:33), SOCS=c(34:35), `Socio-biogr.`=c(36:38)), palette="pastel", legend=TRUE, legend.cex=.8, GLratio=3, 
+     mar=c(1,1,1,1), vsize=7, vsize2=3.5, shape="ellipse", label.cex=1.7, border.color=c("gold", "gold", "gold", "green", "green", 
+                                                                                         "green", "green", "gold", "gold", "cyan", 
+                                                                                         "gold", "gold", "gold", "black", "black", "black", 
+                                                                                         "cyan", "cyan", "cyan", "purple", 
+                                                                                         "cyan", "cyan", "purple", "gold", "purple", "cyan", 
+                                                                                         "purple", "gold", "purple", "green", "cyan", "gold", "gold", 
+                                                                                         "cyan", "cyan", "black", "purple", "brown"), border.width = 4)
 #### Causal discovery ####
 
 # Editing the pcalgo package function to make the graph more readable
@@ -149,3 +255,5 @@ boot2 <- bootnet(estimateNetwork(data, default="EBICglasso", corMethod = "cor_au
 plot(boot2, statistics = c("strength", "betweenness", "expectedInfluence"))
 
 corStability(boot2)
+
+
